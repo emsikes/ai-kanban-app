@@ -1,6 +1,6 @@
 # Frontend
 
-A single-board Kanban app built with Next.js (App Router), statically exported and served by the FastAPI backend at `/`. It currently holds all state in memory; there is no persistence, auth, or backend wiring yet. Later plan parts add a login gate, backend persistence, and an AI chat sidebar.
+A single-board Kanban app built with Next.js (App Router), statically exported and served by the FastAPI backend at `/`. Access is gated by a fake login (`AuthGate` checks `/api/session`); the board still holds its state in memory once shown. Later plan parts add backend persistence and an AI chat sidebar.
 
 The build is produced by `scripts/build-frontend.sh` (runs `npm run build`, copies `out/` into `backend/static/`). In Docker the equivalent happens in the Dockerfile's Node build stage. `backend/static/` is generated output, not source.
 
@@ -19,9 +19,11 @@ frontend/
   src/
     app/
       layout.tsx        Root layout; loads Space Grotesk (display) + Manrope (body) fonts
-      page.tsx          Home route; renders <KanbanBoard />
+      page.tsx          Home route; renders <AuthGate />
       globals.css       Tailwind import + CSS variables for the color scheme
     components/
+      AuthGate.tsx          Client component; checks /api/session, shows login vs board + logout
+      LoginForm.tsx         Username/password form (calls back to AuthGate)
       KanbanBoard.tsx       Client component; owns all board state and DnD context
       KanbanColumn.tsx      A droppable column with editable title and a SortableContext
       KanbanCard.tsx        A sortable/draggable card with a Remove button

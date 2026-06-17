@@ -122,21 +122,25 @@ pm-main/
 
 ---
 
-## Part 4: Fake user sign-in
+## Part 4: Fake user sign-in - COMPLETE
 
 **Objective:** Gate `/` behind a login with `user` / `password`, with logout.
 
-- [ ] Backend `auth.py`: validate hardcoded credentials; issue a signed session cookie on success; clear it on logout
-- [ ] `POST /api/login` (valid -> set cookie + 200; invalid -> 401); `POST /api/logout` (clears cookie); `GET /api/session` (returns `{authenticated: bool}`)
-- [ ] Frontend: a login view; on load, check `/api/session` and show login when unauthenticated, board when authenticated; show an error on bad credentials; a logout control returns to login
-- [ ] Style login per the color scheme (purple submit button, navy headings)
+- [x] Backend `auth.py`: validate hardcoded credentials; signed session cookie via Starlette `SessionMiddleware` (`itsdangerous`, secret from `SESSION_SECRET` env); cleared on logout
+- [x] `POST /api/login` (valid -> set cookie + 200; invalid -> 401); `POST /api/logout` (clears session); `GET /api/session` (returns `{authenticated: bool}`)
+- [x] Frontend `AuthGate`: on load checks `/api/session`, shows `LoginForm` when unauthenticated and the board (with a Log out control) when authenticated; shows an error on bad credentials
+- [x] Style login per the color scheme (purple submit button, navy headings)
 
 **Tests:**
-- Backend unit: login success sets cookie; wrong password -> 401; logout clears session; `/api/session` reflects state
-- Frontend unit: login form validation and error display; board hidden until authenticated
-- e2e: visit `/` -> login form; wrong creds -> error, no board; correct creds -> board; logout -> back to login
+- Backend unit: login success authenticates the session; wrong password -> 401; logout clears session; `/api/session` reflects state
+- Frontend unit: `LoginForm` submit/validation/error; `AuthGate` gate, login, error, and logout flows (fetch mocked)
+- e2e: visit `/` -> login form, board gated; wrong creds -> error, no board; correct creds -> board; logout -> back to login
+
+**Note:** The board now renders client-side behind the gate, so it is no longer pre-rendered into the static HTML. `test_root` therefore asserts the built SPA shell is served (`_next/static` + app title); the board itself is asserted by the e2e suite.
 
 **Success criteria:** Unauthenticated users cannot see the board; correct credentials reveal it; logout works; all tests pass; coverage >= 80% on both sides.
+
+**Verified:** backend `6 passed` / 100% coverage; frontend unit `19 passed`, coverage 95% stmts / 89.7% branches (`AuthGate` + `LoginForm` 100%); Playwright `7 passed` (auth gate, reject, login/logout, plus board add/remove/drag after login); Docker container served the SPA and the session endpoints behaved correctly (session false -> login true -> session true; bad creds 401).
 
 ---
 
