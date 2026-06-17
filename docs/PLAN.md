@@ -1,0 +1,253 @@
+# Project Management MVP - Implementation Plan
+
+> **For agentic workers:** Each part below is a checklist (`- [ ]`) to be checked off as it is completed. Parts are sequential; finish and verify one before starting the next. Every part lists its substeps, tests, and success criteria. The Global Constraints apply to every part.
+
+**Goal:** A local, Dockerized single-board Kanban app with fake login and an AI chat sidebar that can read and edit the board.
+
+**Architecture:** A Python FastAPI backend serves a statically exported Next.js frontend at `/` and a JSON API under `/api`. State persists in a local SQLite database, storing each user's board as a single JSON blob. The AI chat calls the OpenAI API with the current board plus the conversation, and returns Structured Outputs containing a reply and an optional board update.
+
+**Tech Stack:** Next.js 16 / React 19 / Tailwind v4 (frontend), FastAPI + Uvicorn (backend), SQLite (stdlib `sqlite3`), `uv` (Python package manager), OpenAI Python SDK, Docker.
+
+---
+
+## Global Constraints
+
+- **Frontend serving:** Next.js static export (`output: "export"`); no Node runtime in the container. FastAPI serves the built static files at `/`.
+- **Database:** SQLite, created automatically if absent. One row per board; the board is stored as a JSON blob matching the frontend `BoardData` shape. Schema supports multiple users for the future, but the MVP seeds one.
+- **Auth (MVP):** Single hardcoded credential pair `user` / `password`. The schema still models users generally.
+- **AI:** OpenAI API, model `gpt-5.4-mini`. `OPENAI_API_KEY` is read from the project-root `.env` (never hardcoded, never logged).
+- **One board per user** in the MVP.
+- **Runs locally** in a single Docker container.
+- **Unit test coverage:** minimum 80% on both frontend (Vitest) and backend (pytest-cov); builds fail below this.
+- **Integration testing:** robust full-stack coverage - backend API integration via FastAPI `TestClient` against a real temporary SQLite DB, and end-to-end via Playwright against the FastAPI-served static build.
+- **Coding standards (from CLAUDE.md):** latest idiomatic libraries; keep it simple, never over-engineer, no unnecessary defensive programming, no extra features; concise docs; no emojis ever; find root cause before fixing.
+- **Color scheme:** accent yellow `#ecad0a`, primary blue `#209dd7`, secondary purple `#753991`, navy `#032147`, gray text `#888888`.
+
+## Target repository layout
+
+```
+pm-main/
+  frontend/                 Existing Next.js app (see frontend/AGENTS.md)
+  backend/
+    pyproject.toml          uv-managed project + deps
+    app/
+      main.py               FastAPI app, static mount, startup DB init
+      api.py                /api routes (health, auth, board, chat)
+      db.py                 SQLite connection + schema init + board repository
+      auth.py               Session/cookie + credential check
+      ai.py                 OpenAI client wrapper + Structured Outputs schema
+      models.py             Pydantic models (BoardData, Card, Column, chat I/O)
+    static/                 Built frontend (copied from frontend/out at build)
+    tests/                  pytest suite
+  scripts/
+    start.sh  stop.sh       Mac/Linux
+    start.ps1 stop.ps1      Windows
+  docs/
+    PLAN.md                 This document
+    DATABASE.md             DB design (Part 5)
+  Dockerfile                Multi-stage: build frontend, assemble backend
+  .dockerignore
+```
+
+## Testing strategy (applies throughout)
+
+- **Frontend unit/integration:** Vitest + Testing Library. Add coverage thresholds (lines, functions, statements, branches >= 80) to `vitest.config.ts` so `npm run test:unit` fails below target. API calls are mocked in unit tests.
+- **Frontend e2e:** Playwright in `frontend/tests/`. From Part 3 on, e2e runs against the FastAPI-served static build (not `next dev`).
+- **Backend unit/integration:** pytest + pytest-cov with `--cov-fail-under=80`. Integration tests use `TestClient` with a temp SQLite file per test, asserting real persistence and auth enforcement.
+- **Run order:** unit/coverage first, then integration/e2e. A part is done only when its tests pass and coverage holds.
+
+---
+
+## Part 1: Plan - COMPLETE
+
+**Objective:** Enrich this document into a detailed, testable checklist and document the existing frontend, then get user approval.
+
+- [x] Reconcile technical decisions (DB-as-JSON-in-SQLite, static export, model `gpt-5.4-mini`) with the user
+- [x] Enrich `docs/PLAN.md` with substeps, tests, and success criteria per part
+- [x] Create `frontend/AGENTS.md` describing the existing frontend code
+- [x] User reviews and approves this plan before any scaffolding begins
+
+**Tests / verification:** N/A (planning artifact). Verification is user review.
+
+**Success criteria:** User explicitly approves `docs/PLAN.md`. `frontend/AGENTS.md` accurately reflects the current frontend (stack, data model, state, test hooks).
+
+---
+
+## Part 2: Scaffolding (Docker + FastAPI + scripts) - COMPLETE
+
+**Objective:** Stand up the backend, container, and scripts. Serve placeholder static HTML at `/` and prove an API call works.
+
+**Verified:** `uv run pytest` 2 passed / 100% coverage; `./scripts/start.sh` built and ran the container, `curl /` served the placeholder HTML, `curl /api/health` returned `{"status":"ok"}`, `./scripts/stop.sh` removed it.
+
+- [x] Create `backend/pyproject.toml` managed by `uv`; deps: `fastapi`, `uvicorn[standard]`; dev deps: `pytest`, `pytest-cov`, `httpx`
+- [x] Create `backend/app/main.py` with a FastAPI app
+- [x] Add `GET /api/health` returning `{"status": "ok"}`
+- [x] Serve a placeholder `backend/static/index.html` ("hello world") at `/`
+- [x] Create `Dockerfile`: install `uv`, sync backend deps, run `uvicorn app.main:app --host 0.0.0.0 --port 8000` (frontend build stage added in Part 3)
+- [x] Create `.dockerignore` (exclude `node_modules`, `.next`, `out`, `__pycache__`, `.venv`)
+- [x] Write `scripts/start.sh` / `stop.sh` (Mac/Linux) and `scripts/start.ps1` / `stop.ps1` (Windows) to build and run/stop the container on port 8000
+- [x] Write `backend/tests/test_health.py` and `backend/tests/test_root.py`
+
+**Tests:**
+- `test_health`: `TestClient` GET `/api/health` -> 200, body `{"status": "ok"}`
+- `test_root`: GET `/` -> 200, content-type HTML, body contains the hello-world marker
+- Run: `cd backend && uv run pytest --cov=app --cov-fail-under=80`
+
+**Success criteria:** `docker build` succeeds; starting the container via the start script and running `curl localhost:8000/` returns the placeholder HTML and `curl localhost:8000/api/health` returns `{"status":"ok"}`; stop script stops the container; backend tests pass with coverage >= 80%.
+
+---
+
+## Part 3: Serve the real frontend statically - COMPLETE
+
+**Objective:** Statically build the existing Next.js app and serve the demo Kanban board at `/`.
+
+- [x] Set `output: "export"` and `images: { unoptimized: true }` in `frontend/next.config.ts`
+- [x] Confirm `npm run build` emits `frontend/out/` with the board page
+- [x] Update `Dockerfile` to a multi-stage build: Node stage runs `npm ci && npm run build`, backend stage copies the build into `static`
+- [x] Mount `backend/static` at `/` in FastAPI (`html=True`), keeping `/api/*` precedence (done in Part 2; now serves the real build)
+- [x] Add coverage thresholds (>= 80) to `frontend/vitest.config.ts`; scope coverage to `src/**`
+- [x] Keep existing Vitest unit/component tests green; add tests for `KanbanCardPreview`, `page.tsx`, and `moveCard` guards
+- [x] Point Playwright at the FastAPI-served build: `baseURL` `http://127.0.0.1:8000`, `webServer` runs `uvicorn` instead of `next dev`
+- [x] Add e2e covering: board renders five columns; add a card; remove a card; drag a card to another column
+- [x] Add `scripts/build-frontend.sh` to build and sync the export into `backend/static` for local dev/tests
+
+**Tests:**
+- `npm run test:unit` -> pass, coverage >= 80%
+- `npm run test:e2e` against the served static build -> board interactions pass
+- Backend `test_root` updated to assert the real board markup is served
+
+**Success criteria:** Visiting `/` shows the demo Kanban board with working drag/drop, add, remove, and rename; all unit and e2e tests pass; frontend coverage >= 80%.
+
+**Verified:** frontend unit `11 passed`, coverage 93.8% stmts / 87% branches (gate 80% met); Playwright `4 passed` against the FastAPI-served build; backend `2 passed` / 100% coverage with `test_root` asserting the board markup; multi-stage `docker build` succeeded and the container served the board, `_next` JS assets (200), and `/api/health`.
+
+---
+
+## Part 4: Fake user sign-in
+
+**Objective:** Gate `/` behind a login with `user` / `password`, with logout.
+
+- [ ] Backend `auth.py`: validate hardcoded credentials; issue a signed session cookie on success; clear it on logout
+- [ ] `POST /api/login` (valid -> set cookie + 200; invalid -> 401); `POST /api/logout` (clears cookie); `GET /api/session` (returns `{authenticated: bool}`)
+- [ ] Frontend: a login view; on load, check `/api/session` and show login when unauthenticated, board when authenticated; show an error on bad credentials; a logout control returns to login
+- [ ] Style login per the color scheme (purple submit button, navy headings)
+
+**Tests:**
+- Backend unit: login success sets cookie; wrong password -> 401; logout clears session; `/api/session` reflects state
+- Frontend unit: login form validation and error display; board hidden until authenticated
+- e2e: visit `/` -> login form; wrong creds -> error, no board; correct creds -> board; logout -> back to login
+
+**Success criteria:** Unauthenticated users cannot see the board; correct credentials reveal it; logout works; all tests pass; coverage >= 80% on both sides.
+
+---
+
+## Part 5: Database modeling (design + sign-off)
+
+**Objective:** Propose and document the SQLite schema storing the board as JSON; get user sign-off.
+
+- [ ] Create `docs/DATABASE.md` documenting:
+  - `users(id INTEGER PK, username TEXT UNIQUE, password_hash TEXT, created_at TEXT)`
+  - `boards(id INTEGER PK, user_id INTEGER FK -> users.id, data TEXT JSON, updated_at TEXT)` with one board per user (MVP)
+  - `data` JSON matches frontend `BoardData` (`{columns: [...], cards: {...}}`) - include a concrete example
+  - Auto-creation on startup if the DB/tables are absent; seeding of the hardcoded `user` and a default board from the demo data
+  - Rationale: JSON blob keeps the API simple and mirrors the frontend model; relational user table preserves the multi-user future
+- [ ] User reviews and signs off on `docs/DATABASE.md`
+
+**Tests / verification:** N/A (design artifact). Verification is user sign-off.
+
+**Success criteria:** User approves `docs/DATABASE.md`; the documented schema is sufficient for Part 6 (read/write board per user, auto-create, seed).
+
+---
+
+## Part 6: Backend board API + persistence
+
+**Objective:** Implement DB layer and routes to read/change a user's board; auto-create the DB; thorough backend tests.
+
+- [ ] `db.py`: connect to a SQLite file (path from env, default `backend/data/kanban.db`); create tables if absent; seed hardcoded user + default board; board repository `get_board(user_id)` / `save_board(user_id, data)`
+- [ ] `models.py`: Pydantic `Card`, `Column`, `BoardData` mirroring the frontend types; validate on write
+- [ ] Initialize the DB on FastAPI startup
+- [ ] `GET /api/board` -> current user's board (401 if unauthenticated)
+- [ ] `PUT /api/board` -> validate and replace the board, update `updated_at` (401 if unauthenticated)
+
+**Tests (pytest, temp DB per test):**
+- DB file/tables auto-created when absent; default user + board seeded
+- `GET /api/board` returns the seeded board; `PUT` then `GET` returns the saved board (persistence)
+- `PUT` with malformed body -> 422
+- Both routes require auth -> 401 when not logged in
+- Run: `uv run pytest --cov=app --cov-fail-under=80`
+
+**Success criteria:** Board reads/writes persist across requests and process restarts; DB self-creates; invalid payloads rejected; auth enforced; coverage >= 80%.
+
+---
+
+## Part 7: Wire frontend to backend
+
+**Objective:** Replace in-memory state with backend persistence so the board is durable.
+
+- [ ] On load, fetch `GET /api/board` and initialize `KanbanBoard` from it (replace `useState(initialData)`)
+- [ ] Persist via `PUT /api/board` after mutations (rename, add, delete, move); debounce rapid drag updates
+- [ ] Show a lightweight loading/error state while fetching (minimal, no over-engineering)
+
+**Tests:**
+- Frontend unit: board renders from mocked `GET /api/board`; mutations trigger `PUT` with the expected payload (mocked fetch)
+- e2e: make a change, reload the page, change persists; covers add, remove, rename, and move
+
+**Success criteria:** The board loads from and saves to the backend; reloading preserves all changes; tests pass; coverage >= 80%.
+
+---
+
+## Part 8: AI connectivity
+
+**Objective:** Make a basic OpenAI call from the backend and verify it works.
+
+- [ ] Add `openai` to backend deps
+- [ ] `ai.py`: client reading `OPENAI_API_KEY` from env; helper to call model `gpt-5.4-mini`
+- [ ] A minimal internal call (or temporary diagnostic endpoint) that asks "what is 2+2" and parses the answer
+
+**Tests:**
+- Unit: OpenAI client mocked; helper returns the parsed text; missing key handled clearly
+- Live connectivity test (gated on `OPENAI_API_KEY` presence; skipped if absent): "what is 2+2" response contains `4`
+
+**Success criteria:** The live test returns `4`, confirming the key, model id, and SDK usage are correct; unit tests pass; the key is never logged.
+
+---
+
+## Part 9: AI board reasoning with Structured Outputs
+
+**Objective:** Send the board JSON + user question + conversation history; receive a Structured Output with a reply and optional board update; persist updates.
+
+- [ ] Define the Structured Output schema in `models.py`: `{ reply: str, board: BoardData | null }` (null/omitted = no change)
+- [ ] `POST /api/chat` with `{ message: str, history: [{role, content}] }`: load the current board, call the AI with board + history + message using Structured Outputs, return `{reply, board?}`; if a board is returned, validate and persist it via the repository
+- [ ] System prompt instructs the model to only return a board when changes are warranted and to preserve the `BoardData` shape and ids
+
+**Tests:**
+- Unit (OpenAI mocked): reply-only response returns reply and leaves board unchanged; response with a board update validates and persists it; invalid model output -> handled (422/clear error), no corruption
+- Integration: chat that asks to add a card results in the persisted board gaining that card (mocked AI output, real DB)
+- Gated live test: a simple "add a card titled X" round-trip produces a valid board update
+
+**Success criteria:** Chat replies are returned; AI-driven board updates validate against `BoardData` and persist; malformed AI output never corrupts the stored board; coverage >= 80%.
+
+---
+
+## Part 10: AI chat sidebar UI
+
+**Objective:** Add a polished chat sidebar; let the AI update the board; auto-refresh the UI when it does.
+
+- [ ] `ChatSidebar` component: message list, input, send; maintains conversation history; calls `POST /api/chat`
+- [ ] On a response containing a board update, refresh the board UI automatically (apply the returned board or refetch `GET /api/board`)
+- [ ] Style per the color scheme (navy headings, blue accents, purple send button, yellow highlights); responsive sidebar layout
+- [ ] Handle pending/sending and error states minimally
+
+**Tests:**
+- Frontend unit (mocked fetch): sending a message renders the reply; a response with a board update refreshes the rendered board; error state shown on failure
+- e2e: open the sidebar, send a message that adds/moves a card, board updates without a manual reload
+
+**Success criteria:** A working chat sidebar; AI board edits appear in the UI automatically; conversation history is sent with each turn; all unit and e2e tests pass; frontend coverage >= 80%.
+
+---
+
+## Final acceptance
+
+- [ ] Single `docker build` produces a container serving the full app at `/`
+- [ ] Login -> persistent Kanban board (drag/drop, edit, rename) -> AI chat that creates/edits/moves cards with auto-refresh
+- [ ] Frontend and backend unit coverage both >= 80%; backend integration (TestClient) and full-stack e2e (Playwright) green
+- [ ] Start/stop scripts work on Mac/Linux/Windows; SQLite DB self-creates; no emojis anywhere in code or docs
