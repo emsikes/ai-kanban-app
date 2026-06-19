@@ -144,17 +144,19 @@ pm-main/
 
 ---
 
-## Part 5: Database modeling (design + sign-off)
+## Part 5: Database modeling (design + sign-off) - COMPLETE
 
 **Objective:** Propose and document the SQLite schema storing the board as JSON; get user sign-off.
 
-- [ ] Create `docs/DATABASE.md` documenting:
+- [x] Create `docs/DATABASE.md` documenting:
   - `users(id INTEGER PK, username TEXT UNIQUE, password_hash TEXT, created_at TEXT)`
-  - `boards(id INTEGER PK, user_id INTEGER FK -> users.id, data TEXT JSON, updated_at TEXT)` with one board per user (MVP)
-  - `data` JSON matches frontend `BoardData` (`{columns: [...], cards: {...}}`) - include a concrete example
+  - `boards(id INTEGER PK, user_id INTEGER FK -> users.id UNIQUE, data TEXT JSON, updated_at TEXT)` with one board per user (MVP)
+  - `data` JSON matches frontend `BoardData` (`{columns: [...], cards: {...}}`) - includes a concrete example
   - Auto-creation on startup if the DB/tables are absent; seeding of the hardcoded `user` and a default board from the demo data
   - Rationale: JSON blob keeps the API simple and mirrors the frontend model; relational user table preserves the multi-user future
-- [ ] User reviews and signs off on `docs/DATABASE.md`
+- [x] User reviews and signs off on `docs/DATABASE.md`
+
+**Resolved decisions:** JSON blob storage; `password_hash` seeded with a real stdlib PBKDF2 hash (MVP login stays hardcoded and does not consult it); DB file at `backend/data/kanban.db` (gitignored, overridable via `DATABASE_PATH`).
 
 **Tests / verification:** N/A (design artifact). Verification is user sign-off.
 
@@ -162,15 +164,15 @@ pm-main/
 
 ---
 
-## Part 6: Backend board API + persistence
+## Part 6: Backend board API + persistence - COMPLETE
 
 **Objective:** Implement DB layer and routes to read/change a user's board; auto-create the DB; thorough backend tests.
 
-- [ ] `db.py`: connect to a SQLite file (path from env, default `backend/data/kanban.db`); create tables if absent; seed hardcoded user + default board; board repository `get_board(user_id)` / `save_board(user_id, data)`
-- [ ] `models.py`: Pydantic `Card`, `Column`, `BoardData` mirroring the frontend types; validate on write
-- [ ] Initialize the DB on FastAPI startup
-- [ ] `GET /api/board` -> current user's board (401 if unauthenticated)
-- [ ] `PUT /api/board` -> validate and replace the board, update `updated_at` (401 if unauthenticated)
+- [x] `db.py`: connect to a SQLite file (path from env `DATABASE_PATH`, default `backend/data/kanban.db`); create tables if absent; seed hardcoded user (PBKDF2 hash) + default board; repository `default_user_id()` / `get_board(user_id)` / `save_board(user_id, data)`
+- [x] `models.py`: Pydantic `Card`, `Column`, `BoardData` mirroring the frontend types; validate on write
+- [x] Initialize the DB on FastAPI startup (lifespan)
+- [x] `GET /api/board` -> current user's board (401 if unauthenticated)
+- [x] `PUT /api/board` -> validate and replace the board, update `updated_at` (401 if unauthenticated)
 
 **Tests (pytest, temp DB per test):**
 - DB file/tables auto-created when absent; default user + board seeded
@@ -180,6 +182,8 @@ pm-main/
 - Run: `uv run pytest --cov=app --cov-fail-under=80`
 
 **Success criteria:** Board reads/writes persist across requests and process restarts; DB self-creates; invalid payloads rejected; auth enforced; coverage >= 80%.
+
+**Verified:** backend `11 passed` / 100% coverage; a live uvicorn run auto-created `backend/data/kanban.db`, served the seeded 5-column board, and after a PUT + full server restart returned the persisted board (proving cross-restart persistence).
 
 ---
 
