@@ -12,7 +12,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      "cd ../backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000",
+      "cd ../backend && DATABASE_PATH=data/e2e.db uv run uvicorn app.main:app --host 127.0.0.1 --port 8000",
     url: "http://127.0.0.1:8000/api/health",
     reuseExistingServer: true,
     timeout: 120_000,

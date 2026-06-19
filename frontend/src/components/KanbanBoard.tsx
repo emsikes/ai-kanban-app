@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -13,11 +13,15 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
-import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
+import { createId, moveCard, type BoardData } from "@/lib/kanban";
+
+type Status = "loading" | "ready" | "error";
 
 export const KanbanBoard = () => {
-  const [board, setBoard] = useState<BoardData>(() => initialData);
+  const [board, setBoard] = useState<BoardData | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -25,7 +29,49 @@ export const KanbanBoard = () => {
     })
   );
 
-  const cardsById = useMemo(() => board.cards, [board.cards]);
+  useEffect(() => {
+    fetch("/api/board")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Failed to load board");
+        }
+        return response.json();
+      })
+      .then((data: BoardData) => {
+        setBoard(data);
+        setStatus("ready");
+      })
+      .catch(() => setStatus("error"));
+  }, []);
+
+  // Clear any pending save when the board unmounts.
+  useEffect(
+    () => () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+      }
+    },
+    []
+  );
+
+  // Persist the board, debounced so rapid edits (typing, dragging) save once.
+  const persist = (next: BoardData) => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+    }
+    saveTimer.current = setTimeout(() => {
+      fetch("/api/board", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+    }, 400);
+  };
+
+  const applyChange = (next: BoardData) => {
+    setBoard(next);
+    persist(next);
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
@@ -35,61 +81,81 @@ export const KanbanBoard = () => {
     const { active, over } = event;
     setActiveCardId(null);
 
-    if (!over || active.id === over.id) {
+    if (!board || !over || active.id === over.id) {
       return;
     }
 
-    setBoard((prev) => ({
-      ...prev,
-      columns: moveCard(prev.columns, active.id as string, over.id as string),
-    }));
+    applyChange({
+      ...board,
+      columns: moveCard(board.columns, active.id as string, over.id as string),
+    });
   };
 
   const handleRenameColumn = (columnId: string, title: string) => {
-    setBoard((prev) => ({
-      ...prev,
-      columns: prev.columns.map((column) =>
+    if (!board) {
+      return;
+    }
+    applyChange({
+      ...board,
+      columns: board.columns.map((column) =>
         column.id === columnId ? { ...column, title } : column
       ),
-    }));
+    });
   };
 
   const handleAddCard = (columnId: string, title: string, details: string) => {
+    if (!board) {
+      return;
+    }
     const id = createId("card");
-    setBoard((prev) => ({
-      ...prev,
+    applyChange({
+      ...board,
       cards: {
-        ...prev.cards,
+        ...board.cards,
         [id]: { id, title, details: details || "No details yet." },
       },
-      columns: prev.columns.map((column) =>
+      columns: board.columns.map((column) =>
         column.id === columnId
           ? { ...column, cardIds: [...column.cardIds, id] }
           : column
       ),
-    }));
-  };
-
-  const handleDeleteCard = (columnId: string, cardId: string) => {
-    setBoard((prev) => {
-      return {
-        ...prev,
-        cards: Object.fromEntries(
-          Object.entries(prev.cards).filter(([id]) => id !== cardId)
-        ),
-        columns: prev.columns.map((column) =>
-          column.id === columnId
-            ? {
-                ...column,
-                cardIds: column.cardIds.filter((id) => id !== cardId),
-              }
-            : column
-        ),
-      };
     });
   };
 
-  const activeCard = activeCardId ? cardsById[activeCardId] : null;
+  const handleDeleteCard = (columnId: string, cardId: string) => {
+    if (!board) {
+      return;
+    }
+    applyChange({
+      ...board,
+      cards: Object.fromEntries(
+        Object.entries(board.cards).filter(([id]) => id !== cardId)
+      ),
+      columns: board.columns.map((column) =>
+        column.id === columnId
+          ? { ...column, cardIds: column.cardIds.filter((id) => id !== cardId) }
+          : column
+      ),
+    });
+  };
+
+  if (status === "loading") {
+    return (
+      <main className="flex min-h-screen items-center justify-center text-sm text-[var(--gray-text)]">
+        Loading your board...
+      </main>
+    );
+  }
+
+  if (status === "error" || !board) {
+    return (
+      <main className="flex min-h-screen items-center justify-center text-sm text-[var(--secondary-purple)]">
+        We couldn&apos;t load your board. Please refresh.
+      </main>
+    );
+  }
+
+  const activeCard = activeCardId ? board.cards[activeCardId] : null;
 
   return (
     <div className="relative overflow-hidden">

@@ -1,6 +1,6 @@
 # Frontend
 
-A single-board Kanban app built with Next.js (App Router), statically exported and served by the FastAPI backend at `/`. Access is gated by a fake login (`AuthGate` checks `/api/session`); the board still holds its state in memory once shown. Later plan parts add backend persistence and an AI chat sidebar.
+A single-board Kanban app built with Next.js (App Router), statically exported and served by the FastAPI backend at `/`. Access is gated by a fake login (`AuthGate` checks `/api/session`). The board loads from `GET /api/board` and persists every change via a debounced `PUT /api/board`, so state is durable across reloads. Later plan parts add an AI chat sidebar.
 
 The build is produced by `scripts/build-frontend.sh` (runs `npm run build`, copies `out/` into `backend/static/`). In Docker the equivalent happens in the Dockerfile's Node build stage. `backend/static/` is generated output, not source.
 
@@ -24,7 +24,7 @@ frontend/
     components/
       AuthGate.tsx          Client component; checks /api/session, shows login vs board + logout
       LoginForm.tsx         Username/password form (calls back to AuthGate)
-      KanbanBoard.tsx       Client component; owns all board state and DnD context
+      KanbanBoard.tsx       Client component; loads board from API, owns state + DnD, persists changes (debounced PUT)
       KanbanColumn.tsx      A droppable column with editable title and a SortableContext
       KanbanCard.tsx        A sortable/draggable card with a Remove button
       KanbanCardPreview.tsx Static card used inside the DragOverlay
@@ -64,7 +64,7 @@ type BoardData = { columns: Column[]; cards: Record<string, Card> };
 - `handleAddCard(columnId, title, details)` — empty details default to `"No details yet."`
 - `handleDeleteCard(columnId, cardId)`
 
-All mutations are immutable `setBoard` updates. There is no save/load — refreshing the page resets to `initialData`.
+All mutations are immutable `setBoard` updates routed through `applyChange`, which also schedules a debounced `PUT /api/board`. The board is loaded from `GET /api/board` on mount (with `loading`/`error` states); `initialData` is now only the demo seed (mirrored by the backend) and is used in tests as the mock API response. Refreshing reloads the persisted board.
 
 ## Styling
 

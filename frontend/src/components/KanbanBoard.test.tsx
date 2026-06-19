@@ -1,18 +1,41 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { KanbanBoard } from "@/components/KanbanBoard";
+import { initialData } from "@/lib/kanban";
 
-const getFirstColumn = () => screen.getAllByTestId(/column-/i)[0];
+function jsonResponse(body: unknown, ok = true) {
+  return Promise.resolve({ ok, json: () => Promise.resolve(body) } as Response);
+}
+
+let fetchMock: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  fetchMock = vi.fn((url: string, options?: RequestInit) => {
+    if (url === "/api/board" && options?.method !== "PUT") {
+      return jsonResponse(initialData);
+    }
+    return jsonResponse({});
+  });
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+const waitForBoard = () =>
+  waitFor(() => expect(screen.getAllByTestId(/column-/i)).toHaveLength(5));
 
 describe("KanbanBoard", () => {
-  it("renders five columns", () => {
+  it("renders the board loaded from the API", async () => {
     render(<KanbanBoard />);
-    expect(screen.getAllByTestId(/column-/i)).toHaveLength(5);
+    await waitForBoard();
   });
 
   it("renames a column", async () => {
     render(<KanbanBoard />);
-    const column = getFirstColumn();
+    await waitForBoard();
+    const column = screen.getAllByTestId(/column-/i)[0];
     const input = within(column).getByLabelText("Column title");
     await userEvent.clear(input);
     await userEvent.type(input, "New Name");
@@ -21,26 +44,53 @@ describe("KanbanBoard", () => {
 
   it("adds and removes a card", async () => {
     render(<KanbanBoard />);
-    const column = getFirstColumn();
-    const addButton = within(column).getByRole("button", {
-      name: /add a card/i,
+    await waitForBoard();
+    const column = screen.getAllByTestId(/column-/i)[0];
+    await userEvent.click(
+      within(column).getByRole("button", { name: /add a card/i })
+    );
+    await userEvent.type(
+      within(column).getByPlaceholderText(/card title/i),
+      "Fresh card"
+    );
+    await userEvent.click(
+      within(column).getByRole("button", { name: /add card/i })
+    );
+    expect(within(column).getByText("Fresh card")).toBeInTheDocument();
+
+    await userEvent.click(
+      within(column).getByRole("button", { name: /delete fresh card/i })
+    );
+    expect(within(column).queryByText("Fresh card")).not.toBeInTheDocument();
+  });
+
+  it("persists a change via PUT /api/board", async () => {
+    render(<KanbanBoard />);
+    await waitForBoard();
+    const column = screen.getAllByTestId(/column-/i)[0];
+    await userEvent.click(
+      within(column).getByRole("button", { name: /add a card/i })
+    );
+    await userEvent.type(
+      within(column).getByPlaceholderText(/card title/i),
+      "Saved card"
+    );
+    await userEvent.click(
+      within(column).getByRole("button", { name: /add card/i })
+    );
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, options]) => url === "/api/board" && options?.method === "PUT"
+      );
+      expect(put).toBeTruthy();
+      expect(String((put![1] as RequestInit).body)).toContain("Saved card");
     });
-    await userEvent.click(addButton);
+  });
 
-    const titleInput = within(column).getByPlaceholderText(/card title/i);
-    await userEvent.type(titleInput, "New card");
-    const detailsInput = within(column).getByPlaceholderText(/details/i);
-    await userEvent.type(detailsInput, "Notes");
-
-    await userEvent.click(within(column).getByRole("button", { name: /add card/i }));
-
-    expect(within(column).getByText("New card")).toBeInTheDocument();
-
-    const deleteButton = within(column).getByRole("button", {
-      name: /delete new card/i,
-    });
-    await userEvent.click(deleteButton);
-
-    expect(within(column).queryByText("New card")).not.toBeInTheDocument();
+  it("shows an error when the board fails to load", async () => {
+    fetchMock.mockImplementation(() => jsonResponse({}, false));
+    render(<KanbanBoard />);
+    expect(await screen.findByText(/couldn't load/i)).toBeInTheDocument();
   });
 });

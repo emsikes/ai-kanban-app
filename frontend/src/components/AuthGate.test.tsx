@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AuthGate } from "@/components/AuthGate";
+import { initialData } from "@/lib/kanban";
 
 function jsonResponse(body: unknown, ok = true) {
   return Promise.resolve({ ok, json: () => Promise.resolve(body) } as Response);
@@ -31,7 +32,10 @@ describe("AuthGate", () => {
   it("shows the board when already authenticated", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => jsonResponse({ authenticated: true }))
+      vi.fn((url: string) => {
+        if (url === "/api/board") return jsonResponse(initialData);
+        return jsonResponse({ authenticated: true });
+      })
     );
     render(<AuthGate />);
     await waitFor(() =>
@@ -45,6 +49,7 @@ describe("AuthGate", () => {
       vi.fn((url: string) => {
         if (url === "/api/session") return jsonResponse({ authenticated: false });
         if (url === "/api/login") return jsonResponse({ authenticated: true });
+        if (url === "/api/board") return jsonResponse(initialData);
         return jsonResponse({});
       })
     );
@@ -79,6 +84,7 @@ describe("AuthGate", () => {
       "fetch",
       vi.fn((url: string) => {
         if (url === "/api/session") return jsonResponse({ authenticated: true });
+        if (url === "/api/board") return jsonResponse(initialData);
         if (url === "/api/logout") return jsonResponse({ authenticated: false });
         return jsonResponse({});
       })

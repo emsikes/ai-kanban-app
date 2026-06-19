@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { login } from "./helpers";
+import { login, resetBoard } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await login(page);
+  await resetBoard(page);
+  await page.reload();
   await expect(page.locator('[data-testid^="column-"]')).toHaveCount(5);
 });
 
@@ -27,6 +29,29 @@ test("removes a card from a column", async ({ page }) => {
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: /delete/i }).click();
   await expect(page.getByTestId("card-card-1")).toHaveCount(0);
+});
+
+test("persists edits across a reload", async ({ page }) => {
+  const column = page.locator('[data-testid^="column-"]').first();
+  await column.getByLabel("Column title").fill("Renamed Column");
+
+  await column.getByRole("button", { name: /add a card/i }).click();
+  await column.getByPlaceholder("Card title").fill("Durable card");
+
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/board") &&
+      response.request().method() === "PUT"
+  );
+  await column.getByRole("button", { name: /add card/i }).click();
+  await saved;
+
+  await page.reload();
+  const reloaded = page.locator('[data-testid^="column-"]').first();
+  await expect(reloaded.getByLabel("Column title")).toHaveValue(
+    "Renamed Column"
+  );
+  await expect(page.getByText("Durable card")).toBeVisible();
 });
 
 test("moves a card between columns", async ({ page }) => {
