@@ -16,3 +16,30 @@ class Column(BaseModel):
 class BoardData(BaseModel):
     columns: list[Column]
     cards: dict[str, Card]
+
+
+# AI-facing board: cards as a list (OpenAI strict Structured Outputs cannot
+# represent the open-ended dict[str, Card] map). Converted to/from BoardData.
+class AiBoard(BaseModel):
+    columns: list[Column]
+    cards: list[Card]
+
+
+class ChatResult(BaseModel):
+    reply: str
+    board: AiBoard | None = None
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = []
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    board: BoardData | None = None

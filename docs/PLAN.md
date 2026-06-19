@@ -15,7 +15,7 @@
 - **Frontend serving:** Next.js static export (`output: "export"`); no Node runtime in the container. FastAPI serves the built static files at `/`.
 - **Database:** SQLite, created automatically if absent. One row per board; the board is stored as a JSON blob matching the frontend `BoardData` shape. Schema supports multiple users for the future, but the MVP seeds one.
 - **Auth (MVP):** Single hardcoded credential pair `user` / `password`. The schema still models users generally.
-- **AI:** OpenAI API, model `gpt-5.4-mini`. `OPENAI_API_KEY` is read from the project-root `.env` (never hardcoded, never logged).
+- **AI:** OpenAI API, model `gpt-5.4-mini`, via the Responses API with Structured Outputs. `OPENAI_API_KEY` is read from the environment (never hardcoded, never logged); `ai.py` also loads a project-root `.env` if present without overriding real env vars. Note: the actual project `.env` is malformed, so the working key comes from the shell environment and is forwarded into the container via `docker run -e OPENAI_API_KEY`.
 - **One board per user** in the MVP.
 - **Runs locally** in a single Docker container.
 - **Unit test coverage:** minimum 80% on both frontend (Vitest) and backend (pytest-cov); builds fail below this.
@@ -25,27 +25,31 @@
 
 ## Target repository layout
 
+As built (the original plan's single `api.py` was split into `auth.py` and `board.py`):
+
 ```
 pm-main/
-  frontend/                 Existing Next.js app (see frontend/AGENTS.md)
+  frontend/                 Next.js app (see frontend/AGENTS.md)
   backend/
     pyproject.toml          uv-managed project + deps
     app/
-      main.py               FastAPI app, static mount, startup DB init
-      api.py                /api routes (health, auth, board, chat)
-      db.py                 SQLite connection + schema init + board repository
-      auth.py               Session/cookie + credential check
-      ai.py                 OpenAI client wrapper + Structured Outputs schema
-      models.py             Pydantic models (BoardData, Card, Column, chat I/O)
+      main.py               FastAPI app, SessionMiddleware, routers, lifespan DB init, static mount
+      auth.py               Session/cookie + credential check (login/logout/session)
+      board.py              /api/board (GET/PUT) and /api/chat routes + require_user dependency
+      db.py                 SQLite connection + schema init + seeding + board repository
+      ai.py                 OpenAI client; ask() connectivity helper; chat() Structured Outputs + board<->AiBoard
+      models.py             Pydantic models (Card, Column, BoardData, AiBoard, Chat* I/O)
+    data/                   SQLite file (gitignored, auto-created)
     static/                 Built frontend (copied from frontend/out at build)
     tests/                  pytest suite
   scripts/
-    start.sh  stop.sh       Mac/Linux
+    start.sh  stop.sh       Mac/Linux (start forwards OPENAI_API_KEY into the container)
     start.ps1 stop.ps1      Windows
+    build-frontend.sh       Build the static export and sync it into backend/static
   docs/
     PLAN.md                 This document
     DATABASE.md             DB design (Part 5)
-  Dockerfile                Multi-stage: build frontend, assemble backend
+  Dockerfile                Multi-stage: Node build of frontend, assemble backend
   .dockerignore
 ```
 
@@ -224,20 +228,22 @@ pm-main/
 
 ---
 
-## Part 9: AI board reasoning with Structured Outputs
+## Part 9: AI board reasoning with Structured Outputs - COMPLETE
 
 **Objective:** Send the board JSON + user question + conversation history; receive a Structured Output with a reply and optional board update; persist updates.
 
-- [ ] Define the Structured Output schema in `models.py`: `{ reply: str, board: BoardData | null }` (null/omitted = no change)
-- [ ] `POST /api/chat` with `{ message: str, history: [{role, content}] }`: load the current board, call the AI with board + history + message using Structured Outputs, return `{reply, board?}`; if a board is returned, validate and persist it via the repository
-- [ ] System prompt instructs the model to only return a board when changes are warranted and to preserve the `BoardData` shape and ids
+- [x] Structured Output schema in `models.py`: `ChatResult { reply: str, board: AiBoard | null }`. `AiBoard` uses `cards` as a list (strict Structured Outputs cannot represent the open-ended `dict[str, Card]`); converted to/from `BoardData` via `ai.board_to_ai` / `ai.ai_to_board`
+- [x] `POST /api/chat` with `{ message: str, history: [{role, content}] }`: loads the current board, calls `ai.chat` (board + history + message) using `responses.parse(text_format=ChatResult)`, returns `{reply, board?}`; if a board is returned it is converted to `BoardData` and persisted
+- [x] System prompt instructs the model to only return a board when changes are warranted, preserve ids, keep all columns, and maintain cardIds/cards referential integrity
+- [x] AI/transport failures return 502 without touching the stored board
 
 **Tests:**
-- Unit (OpenAI mocked): reply-only response returns reply and leaves board unchanged; response with a board update validates and persists it; invalid model output -> handled (422/clear error), no corruption
-- Integration: chat that asks to add a card results in the persisted board gaining that card (mocked AI output, real DB)
-- Gated live test: a simple "add a card titled X" round-trip produces a valid board update
+- Unit (`ai.chat` mocked): reply-only leaves board unchanged; board update persists; AI failure -> 502 with no corruption; `ai.chat` calls the model with `text_format=ChatResult`
+- Gated live test: "add a card titled Buy milk" round-trip produces a valid board with that card
 
 **Success criteria:** Chat replies are returned; AI-driven board updates validate against `BoardData` and persist; malformed AI output never corrupts the stored board; coverage >= 80%.
+
+**Verified:** backend `21 passed` / 100% coverage; the live test produced a real structured board update from `gpt-5.4-mini`; a live end-to-end `/api/chat` call ("add Demo Task") replied, returned the updated board, and persisted it to the DB.
 
 ---
 

@@ -13,8 +13,8 @@ backend/
     auth.py         Hardcoded credential check + session routes (login/logout/session)
     board.py        Board routes (GET/PUT /api/board) + require_user auth dependency
     db.py           SQLite connect, schema init, seeding, board repository
-    ai.py           OpenAI client + ask(prompt) helper (model gpt-5.4-mini, Responses API)
-    models.py       Pydantic Card / Column / BoardData (mirror the frontend types)
+    ai.py           OpenAI client; ask(prompt) connectivity helper; chat() with Structured Outputs + board <-> AiBoard conversion
+    models.py       Pydantic Card / Column / BoardData (frontend types) + AiBoard / ChatResult / ChatRequest / ChatResponse
   data/             SQLite file lives here (gitignored, auto-created)
   static/           Served at /; the built Next.js SPA (produced by scripts/build-frontend.sh / Docker)
   tests/
@@ -33,6 +33,7 @@ backend/
 - `GET /api/session` -> `{authenticated: bool}`
 - `GET /api/board` -> the signed-in user's board as `BoardData` (401 if unauthenticated)
 - `PUT /api/board` -> validate `BoardData` and persist it (401 if unauthenticated, 422 if malformed)
+- `POST /api/chat` -> `{message, history}` -> `{reply, board?}`; the AI may return an updated board, which is validated and persisted (401 if unauthenticated, 502 if the AI call fails)
 - `GET /` (and other paths) -> static files from `static/` (`html=True`, serves `index.html`)
 
 `/api/*` routes are registered before the static mount so the API takes precedence. Sessions use Starlette `SessionMiddleware` (signed cookie); the secret comes from `SESSION_SECRET` (defaults to a dev value). MVP credentials are hardcoded in `auth.py`.
