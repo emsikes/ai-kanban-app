@@ -205,19 +205,22 @@ pm-main/
 
 ---
 
-## Part 8: AI connectivity
+## Part 8: AI connectivity - COMPLETE
 
 **Objective:** Make a basic OpenAI call from the backend and verify it works.
 
-- [ ] Add `openai` to backend deps
-- [ ] `ai.py`: client reading `OPENAI_API_KEY` from env; helper to call model `gpt-5.4-mini`
-- [ ] A minimal internal call (or temporary diagnostic endpoint) that asks "what is 2+2" and parses the answer
+- [x] Add `openai` (+ `python-dotenv`) to backend deps
+- [x] `ai.py`: `get_client()` reads `OPENAI_API_KEY` (loads `.env` without overriding real env); `ask(prompt)` calls model `gpt-5.4-mini` via the Responses API and returns `output_text`
+- [x] `ask("what is 2+2")` used as the connectivity check (no endpoint added yet)
+- [x] Start scripts forward `OPENAI_API_KEY` into the container (`-e OPENAI_API_KEY`)
 
 **Tests:**
-- Unit: OpenAI client mocked; helper returns the parsed text; missing key handled clearly
+- Unit: missing key raises; `get_client` passes the env key to the SDK (mocked); `ask` returns the model text (mocked)
 - Live connectivity test (gated on `OPENAI_API_KEY` presence; skipped if absent): "what is 2+2" response contains `4`
 
 **Success criteria:** The live test returns `4`, confirming the key, model id, and SDK usage are correct; unit tests pass; the key is never logged.
+
+**Verified:** backend `15 passed` / 100% coverage; the live test ran (not skipped) and `ask("What is 2+2?")` returned exactly `"4"` from `gpt-5.4-mini`. Note: the working key is a real `sk-proj` key in the shell environment; the project-root `.env` is malformed (see note to user) and is not the source.
 
 ---
 

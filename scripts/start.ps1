@@ -6,6 +6,7 @@ $container = "pm-app"
 
 docker build -t $image $root
 docker rm -f $container 2>$null | Out-Null
-docker run -d --name $container -p 8000:8000 $image
+# -e OPENAI_API_KEY forwards the host value (if set) for the AI features.
+docker run -d --name $container -e OPENAI_API_KEY -p 8000:8000 $image
 
 Write-Host "Running at http://localhost:8000"

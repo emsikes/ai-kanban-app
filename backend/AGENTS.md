@@ -13,6 +13,7 @@ backend/
     auth.py         Hardcoded credential check + session routes (login/logout/session)
     board.py        Board routes (GET/PUT /api/board) + require_user auth dependency
     db.py           SQLite connect, schema init, seeding, board repository
+    ai.py           OpenAI client + ask(prompt) helper (model gpt-5.4-mini, Responses API)
     models.py       Pydantic Card / Column / BoardData (mirror the frontend types)
   data/             SQLite file lives here (gitignored, auto-created)
   static/           Served at /; the built Next.js SPA (produced by scripts/build-frontend.sh / Docker)
@@ -21,6 +22,7 @@ backend/
     test_root.py    GET / -> built SPA shell is served
     test_auth.py    login / logout / session behavior
     test_board.py   board read/write, persistence, auth, validation (temp DB per test)
+    test_ai.py      AI client/key handling (mocked) + gated live "2+2" connectivity test
 ```
 
 ## Routes (current)
