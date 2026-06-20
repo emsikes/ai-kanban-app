@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { KanbanBoard } from "@/components/KanbanBoard";
 import { LoginForm } from "@/components/LoginForm";
+import { Workspace } from "@/components/Workspace";
 
 type Status = "loading" | "anon" | "authed";
 
@@ -19,15 +19,21 @@ export const AuthGate = () => {
 
   const handleLogin = async (username: string, password: string) => {
     setError("");
-    const response = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    if (response.ok) {
-      setStatus("authed");
-    } else {
-      setError("Invalid username or password.");
+    try {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      if (response.ok) {
+        setStatus("authed");
+      } else if (response.status === 401) {
+        setError("Invalid username or password.");
+      } else {
+        setError("Could not reach the server. Is the backend running?");
+      }
+    } catch {
+      setError("Could not reach the server. Is the backend running?");
     }
   };
 
@@ -44,16 +50,5 @@ export const AuthGate = () => {
     return <LoginForm onSubmit={handleLogin} error={error} />;
   }
 
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={handleLogout}
-        className="fixed right-6 top-6 z-10 rounded-full bg-[var(--secondary-purple)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-[var(--shadow)] transition hover:brightness-110"
-      >
-        Log out
-      </button>
-      <KanbanBoard />
-    </div>
-  );
+  return <Workspace onLogout={handleLogout} />;
 };

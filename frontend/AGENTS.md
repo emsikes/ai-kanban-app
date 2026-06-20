@@ -1,6 +1,6 @@
 # Frontend
 
-A single-board Kanban app built with Next.js (App Router), statically exported and served by the FastAPI backend at `/`. Access is gated by a fake login (`AuthGate` checks `/api/session`). The board loads from `GET /api/board` and persists every change via a debounced `PUT /api/board`, so state is durable across reloads. Later plan parts add an AI chat sidebar.
+A single-board Kanban app built with Next.js (App Router), statically exported and served by the FastAPI backend at `/`. Access is gated by a fake login (`AuthGate` checks `/api/session`). The board loads from `GET /api/board` and persists every change via a debounced `PUT /api/board`. An AI chat sidebar (`ChatSidebar`) posts to `/api/chat`; when the AI returns a board update, `Workspace` bumps a refresh signal so `KanbanBoard` refetches and the UI updates without a reload.
 
 The build is produced by `scripts/build-frontend.sh` (runs `npm run build`, copies `out/` into `backend/static/`). In Docker the equivalent happens in the Dockerfile's Node build stage. `backend/static/` is generated output, not source.
 
@@ -22,9 +22,11 @@ frontend/
       page.tsx          Home route; renders <AuthGate />
       globals.css       Tailwind import + CSS variables for the color scheme
     components/
-      AuthGate.tsx          Client component; checks /api/session, shows login vs board + logout
+      AuthGate.tsx          Client component; checks /api/session, shows login vs Workspace
       LoginForm.tsx         Username/password form (calls back to AuthGate)
-      KanbanBoard.tsx       Client component; loads board from API, owns state + DnD, persists changes (debounced PUT)
+      Workspace.tsx         Authed layout: board + chat sidebar + logout; owns the board refresh signal
+      ChatSidebar.tsx       AI chat panel; POSTs /api/chat with history; triggers board refresh on board updates
+      KanbanBoard.tsx       Client component; loads board from API (reloads on refreshSignal), owns state + DnD, persists (debounced PUT)
       KanbanColumn.tsx      A droppable column with editable title and a SortableContext
       KanbanCard.tsx        A sortable/draggable card with a Remove button
       KanbanCardPreview.tsx Static card used inside the DragOverlay

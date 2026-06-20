@@ -17,7 +17,12 @@ import { createId, moveCard, type BoardData } from "@/lib/kanban";
 
 type Status = "loading" | "ready" | "error";
 
-export const KanbanBoard = () => {
+type KanbanBoardProps = {
+  // Incremented by a parent to force a reload (e.g. after the AI edits the board).
+  refreshSignal?: number;
+};
+
+export const KanbanBoard = ({ refreshSignal = 0 }: KanbanBoardProps) => {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
@@ -29,6 +34,8 @@ export const KanbanBoard = () => {
     })
   );
 
+  // Loads on mount and whenever refreshSignal changes; refreshes keep the
+  // current board visible (no loading flash) until the new data arrives.
   useEffect(() => {
     fetch("/api/board")
       .then((response) => {
@@ -42,7 +49,7 @@ export const KanbanBoard = () => {
         setStatus("ready");
       })
       .catch(() => setStatus("error"));
-  }, []);
+  }, [refreshSignal]);
 
   // Clear any pending save when the board unmounts.
   useEffect(

@@ -3,8 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { AuthGate } from "@/components/AuthGate";
 import { initialData } from "@/lib/kanban";
 
-function jsonResponse(body: unknown, ok = true) {
-  return Promise.resolve({ ok, json: () => Promise.resolve(body) } as Response);
+function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
+  return Promise.resolve({
+    ok,
+    status,
+    json: () => Promise.resolve(body),
+  } as Response);
 }
 
 afterEach(() => {
@@ -66,7 +70,8 @@ describe("AuthGate", () => {
       "fetch",
       vi.fn((url: string) => {
         if (url === "/api/session") return jsonResponse({ authenticated: false });
-        if (url === "/api/login") return jsonResponse({ detail: "no" }, false);
+        if (url === "/api/login")
+          return jsonResponse({ detail: "no" }, false, 401);
         return jsonResponse({});
       })
     );
@@ -77,6 +82,23 @@ describe("AuthGate", () => {
       await screen.findByText(/invalid username or password/i)
     ).toBeInTheDocument();
     expect(screen.queryByTestId(/column-/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a connection error when the backend is unreachable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === "/api/session") return jsonResponse({ authenticated: false });
+        if (url === "/api/login") return jsonResponse({}, false, 404);
+        return jsonResponse({});
+      })
+    );
+    render(<AuthGate />);
+    await screen.findByRole("heading", { name: /sign in/i });
+    await signIn();
+    expect(
+      await screen.findByText(/could not reach the server/i)
+    ).toBeInTheDocument();
   });
 
   it("logs out and returns to the login form", async () => {
