@@ -8,7 +8,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app import db
 from app.auth import router as auth_router
-from app.board import router as board_router
+from app.projects import router as projects_router
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "dev-secret-change-me")
@@ -30,6 +30,6 @@ def health():
 
 
 app.include_router(auth_router)
-app.include_router(board_router)
+app.include_router(projects_router)
 
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

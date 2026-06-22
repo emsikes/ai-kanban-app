@@ -22,7 +22,7 @@ describe("ChatSidebar", () => {
     fetchMock = vi.fn(() => jsonResponse({ reply: "Hello back", board: null }));
     vi.stubGlobal("fetch", fetchMock);
     const onBoardUpdated = vi.fn();
-    render(<ChatSidebar onBoardUpdated={onBoardUpdated} />);
+    render(<ChatSidebar projectId={1} onBoardUpdated={onBoardUpdated} />);
 
     await send("hi there");
 
@@ -37,7 +37,7 @@ describe("ChatSidebar", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const onBoardUpdated = vi.fn();
-    render(<ChatSidebar onBoardUpdated={onBoardUpdated} />);
+    render(<ChatSidebar projectId={1} onBoardUpdated={onBoardUpdated} />);
 
     await send("add a card");
 
@@ -47,7 +47,7 @@ describe("ChatSidebar", () => {
   it("sends the prior conversation as history on the next turn", async () => {
     fetchMock = vi.fn(() => jsonResponse({ reply: "ok", board: null }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<ChatSidebar onBoardUpdated={vi.fn()} />);
+    render(<ChatSidebar projectId={1} onBoardUpdated={vi.fn()} />);
 
     await send("first");
     await screen.findByText("ok");
@@ -67,10 +67,24 @@ describe("ChatSidebar", () => {
   it("shows an error when the request fails", async () => {
     fetchMock = vi.fn(() => jsonResponse({}, false));
     vi.stubGlobal("fetch", fetchMock);
-    render(<ChatSidebar onBoardUpdated={vi.fn()} />);
+    render(<ChatSidebar projectId={1} onBoardUpdated={vi.fn()} />);
 
     await send("hi");
 
     expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument();
+  });
+
+  it("clears the conversation when the project changes", async () => {
+    fetchMock = vi.fn(() => jsonResponse({ reply: "Hello back", board: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(
+      <ChatSidebar projectId={1} onBoardUpdated={vi.fn()} />
+    );
+    await send("hi there");
+    expect(await screen.findByText("Hello back")).toBeInTheDocument();
+
+    rerender(<ChatSidebar projectId={2} onBoardUpdated={vi.fn()} />);
+    expect(screen.queryByText("Hello back")).not.toBeInTheDocument();
+    expect(screen.queryByText("hi there")).not.toBeInTheDocument();
   });
 });

@@ -37,7 +37,9 @@ describe("AuthGate", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
-        if (url === "/api/board") return jsonResponse(initialData);
+        if (url === "/api/projects")
+          return jsonResponse([{ id: 1, name: "My Board", position: 0 }]);
+        if (url === "/api/projects/1/board") return jsonResponse(initialData);
         return jsonResponse({ authenticated: true });
       })
     );
@@ -53,7 +55,9 @@ describe("AuthGate", () => {
       vi.fn((url: string) => {
         if (url === "/api/session") return jsonResponse({ authenticated: false });
         if (url === "/api/login") return jsonResponse({ authenticated: true });
-        if (url === "/api/board") return jsonResponse(initialData);
+        if (url === "/api/projects")
+          return jsonResponse([{ id: 1, name: "My Board", position: 0 }]);
+        if (url === "/api/projects/1/board") return jsonResponse(initialData);
         return jsonResponse({});
       })
     );
@@ -106,7 +110,9 @@ describe("AuthGate", () => {
       "fetch",
       vi.fn((url: string) => {
         if (url === "/api/session") return jsonResponse({ authenticated: true });
-        if (url === "/api/board") return jsonResponse(initialData);
+        if (url === "/api/projects")
+          return jsonResponse([{ id: 1, name: "My Board", position: 0 }]);
+        if (url === "/api/projects/1/board") return jsonResponse(initialData);
         if (url === "/api/logout") return jsonResponse({ authenticated: false });
         return jsonResponse({});
       })

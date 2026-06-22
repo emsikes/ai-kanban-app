@@ -8,7 +8,10 @@ export async function login(page: Page) {
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
-// Reset the signed-in user's board to the known seed so tests are deterministic.
+// Reset the first project's board to the known seed so tests are deterministic.
 export async function resetBoard(page: Page) {
-  await page.request.put("/api/board", { data: initialData });
+  const projects = await (await page.request.get("/api/projects")).json();
+  await page.request.put(`/api/projects/${projects[0].id}/board`, {
+    data: initialData,
+  });
 }

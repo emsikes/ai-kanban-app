@@ -1,17 +1,24 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 type Message = { role: "user" | "assistant"; content: string };
 
 type ChatSidebarProps = {
+  projectId: number;
   onBoardUpdated: () => void;
 };
 
-export const ChatSidebar = ({ onBoardUpdated }: ChatSidebarProps) => {
+export const ChatSidebar = ({ projectId, onBoardUpdated }: ChatSidebarProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "error">("idle");
+
+  // The conversation is per-project; reset it when the active project changes.
+  useEffect(() => {
+    setMessages([]);
+    setStatus("idle");
+  }, [projectId]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -27,7 +34,7 @@ export const ChatSidebar = ({ onBoardUpdated }: ChatSidebarProps) => {
     setStatus("sending");
 
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch(`/api/projects/${projectId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, history }),

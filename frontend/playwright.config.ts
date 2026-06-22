@@ -20,7 +20,9 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      // Override the device's 1280x720 with a roomy desktop viewport so the
+      // board + fixed chat panel are not cramped (keeps cards on-screen).
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1200 } },
     },
   ],
 });

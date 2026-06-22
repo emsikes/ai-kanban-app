@@ -1,12 +1,20 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from app import db
+
 # Hardcoded MVP credentials. The schema supports multiple users for the future,
 # but only this pair is accepted for now.
 USERNAME = "user"
 PASSWORD = "password"
 
 router = APIRouter(prefix="/api")
+
+
+def require_user(request: Request) -> int:
+    if "user" not in request.session:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return db.default_user_id()
 
 
 class LoginRequest(BaseModel):

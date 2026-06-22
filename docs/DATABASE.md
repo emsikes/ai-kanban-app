@@ -14,6 +14,8 @@ Rationale:
 
 ## Tables
 
+> **Updated (Part 12):** the single-board `boards` table was replaced by a `projects` table so a user can have multiple named boards. The original `boards` design is kept below the line for history.
+
 ```sql
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,20 +24,36 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS boards (
+CREATE TABLE IF NOT EXISTS projects (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    INTEGER NOT NULL UNIQUE REFERENCES users(id),
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    name       TEXT NOT NULL,
+    position   INTEGER NOT NULL,
     data       TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
 
 Notes:
-- `boards.user_id` is `UNIQUE`, enforcing one board per user for the MVP. Dropping that constraint is the only change needed to allow multiple boards later.
-- `data` holds the board JSON as text (see below). Application code validates it against the `BoardData` model on every write.
-- Timestamps are stored as ISO-8601 text via SQLite's `datetime('now')`, which is simple and human-readable.
+- A **project is a board with a name and an ordering**. A user may have many projects (no `UNIQUE(user_id)`).
+- `position` orders projects in the nav (0-based, reassigned on reorder).
+- `data` holds the board JSON as text (see below), validated against the `BoardData` model on every write.
+- New projects start with the 5 default columns and no cards; the seeded first project ("My Board") gets the demo board.
 
-## `boards.data` JSON shape
+**Migration from the legacy `boards` table:** on startup, if a `boards` table exists, each row is copied into `projects` (name "My Board", position 0, same `data`) for any user that has no projects yet, then `boards` is dropped. This preserves the pre-Part-12 board.
+
+### Legacy (pre-Part 12) single-board table
+
+```sql
+CREATE TABLE boards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+## `projects.data` JSON shape
 
 Identical to the frontend `BoardData` (`frontend/src/lib/kanban.ts`): an ordered list of columns plus a map of cards by id. Column order is the array order; card order within a column is its `cardIds` array.
 
@@ -59,20 +77,22 @@ Types (mirroring the frontend):
 
 ## Creation and seeding
 
-The database file is created automatically if it does not exist (default path `backend/data/kanban.db`, overridable via env). On startup the backend:
+The database file is created automatically if it does not exist (default path `backend/data/kanban.db`, overridable via `DATABASE_PATH`). On startup the backend:
 
-1. Creates the `users` and `boards` tables if absent (`CREATE TABLE IF NOT EXISTS`).
+1. Creates the `users` and `projects` tables if absent (`CREATE TABLE IF NOT EXISTS`).
 2. Seeds the single MVP user `user` if absent.
-3. Seeds that user's board with the demo board (the same five columns and cards as the current frontend `initialData`) if absent.
+3. Migrates a legacy `boards` table into `projects` if present (see above), then drops it.
+4. Seeds a default project "My Board" (demo board) for the user if they have no projects.
 
-No migration framework is used; the create-if-absent statements are the entire schema lifecycle for the MVP.
+No migration framework is used; the create-if-absent statements plus the one-time legacy migration are the entire schema lifecycle.
 
-## How the API uses it (Part 6 preview)
+## How the API uses it (project-scoped, Part 12)
 
-- `GET /api/board` resolves the signed-in user to their `users.id`, returns `boards.data` parsed as JSON.
-- `PUT /api/board` validates the incoming body against `BoardData`, writes it to `boards.data`, and updates `updated_at`.
+The signed-in user resolves to their `users.id`; projects are always filtered by `user_id` (unknown/non-owned id -> 404).
 
-The session established in Part 4 identifies the user; the MVP always resolves to the seeded `user`.
+- `GET /api/projects` / `POST /api/projects` / `PATCH|DELETE /api/projects/{id}` / `POST /api/projects/reorder` - manage projects (delete blocked on the last one)
+- `GET|PUT /api/projects/{id}/board` - read/write that project's `data` (validated against `BoardData`)
+- `POST /api/projects/{id}/chat` - AI chat scoped to that project's board
 
 ## Decisions (resolved)
 

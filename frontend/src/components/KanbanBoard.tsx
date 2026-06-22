@@ -18,11 +18,12 @@ import { createId, moveCard, type BoardData } from "@/lib/kanban";
 type Status = "loading" | "ready" | "error";
 
 type KanbanBoardProps = {
+  projectId: number;
   // Incremented by a parent to force a reload (e.g. after the AI edits the board).
   refreshSignal?: number;
 };
 
-export const KanbanBoard = ({ refreshSignal = 0 }: KanbanBoardProps) => {
+export const KanbanBoard = ({ projectId, refreshSignal = 0 }: KanbanBoardProps) => {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
@@ -34,10 +35,10 @@ export const KanbanBoard = ({ refreshSignal = 0 }: KanbanBoardProps) => {
     })
   );
 
-  // Loads on mount and whenever refreshSignal changes; refreshes keep the
-  // current board visible (no loading flash) until the new data arrives.
+  // Loads on mount and whenever the project or refreshSignal changes; refreshes
+  // keep the current board visible (no loading flash) until the new data arrives.
   useEffect(() => {
-    fetch("/api/board")
+    fetch(`/api/projects/${projectId}/board`)
       .then((response) => {
         if (!response.ok) {
           throw new Error("Failed to load board");
@@ -49,7 +50,7 @@ export const KanbanBoard = ({ refreshSignal = 0 }: KanbanBoardProps) => {
         setStatus("ready");
       })
       .catch(() => setStatus("error"));
-  }, [refreshSignal]);
+  }, [projectId, refreshSignal]);
 
   // Clear any pending save when the board unmounts.
   useEffect(
@@ -67,7 +68,7 @@ export const KanbanBoard = ({ refreshSignal = 0 }: KanbanBoardProps) => {
       clearTimeout(saveTimer.current);
     }
     saveTimer.current = setTimeout(() => {
-      fetch("/api/board", {
+      fetch(`/api/projects/${projectId}/board`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(next),
@@ -146,6 +147,22 @@ export const KanbanBoard = ({ refreshSignal = 0 }: KanbanBoardProps) => {
     });
   };
 
+  const handleEditCard = (
+    cardId: string,
+    fields: { title: string; details: string }
+  ) => {
+    if (!board) {
+      return;
+    }
+    applyChange({
+      ...board,
+      cards: {
+        ...board.cards,
+        [cardId]: { ...board.cards[cardId], ...fields },
+      },
+    });
+  };
+
   if (status === "loading") {
     return (
       <main className="flex min-h-screen items-center justify-center text-sm text-[var(--gray-text)]">
@@ -221,6 +238,7 @@ export const KanbanBoard = ({ refreshSignal = 0 }: KanbanBoardProps) => {
                 onRename={handleRenameColumn}
                 onAddCard={handleAddCard}
                 onDeleteCard={handleDeleteCard}
+                onEditCard={handleEditCard}
               />
             ))}
           </section>

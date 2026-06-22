@@ -272,3 +272,68 @@ pm-main/
 - [x] Login -> persistent Kanban board (drag/drop, edit, rename) -> AI chat that creates/edits/moves cards with auto-refresh. Board + persistence + auto-refresh fully verified; the AI board-edit path verified live at the API level (Part 9). Full live browser+AI run is gated on `OPENAI_API_KEY`, which this sandbox provides only intermittently (never to the npx-spawned e2e server)
 - [x] Frontend and backend unit coverage both >= 80% (frontend 94.8%, backend 100%); backend integration (TestClient) and the deterministic full-stack e2e (Playwright, 8 passed) green
 - [x] SQLite DB self-creates; no emojis anywhere in code or docs. Start/stop scripts verified on macOS; Windows `.ps1` scripts written but not executed in this environment
+
+---
+
+# Enhancements (post-MVP)
+
+Design spec: `docs/specs/2026-06-20-card-editing-and-projects-design.md`. These parts add inline card editing and multiple projects. Same global constraints apply (80% coverage both sides, robust integration tests, no emojis, simplicity, color scheme).
+
+## Part 11: Inline card editing - COMPLETE
+
+**Objective:** Edit a card's title and details in place; persist via the existing debounced save.
+
+- [x] `KanbanCard`: title is click-to-edit (input) and details click-to-edit (textarea); Enter or blur saves, Escape cancels, an empty title reverts to the prior value
+- [x] Editing does not start a drag: `onPointerDown` is stopped on the edit inputs and the Remove button; the card stays draggable by its non-editing area
+- [x] `KanbanBoard`: `handleEditCard(cardId, { title, details })` updates `board.cards[cardId]` via `applyChange` (debounced `PUT`)
+- [x] `KanbanColumn`: threads `onEditCard` from board to card
+
+**Tests:**
+- Frontend unit: clicking the title shows an input; typing + Enter updates the rendered title; Escape restores the original; empty title reverts; editing details updates them; an edit triggers a `PUT`
+- e2e: edit a card's title, reload, the change persists; drag-and-drop still works after the change
+
+**Success criteria:** Card title and details are editable inline and persist; drag/add/remove still work; frontend coverage >= 80%.
+
+**Verified:** frontend unit `31 passed`, coverage 94.3% stmts / 89.3% branches (`KanbanCard` 96%); Playwright kanban suite `6 passed`, including inline-edit-persists and the move test (drag still works after the change).
+
+## Part 12: Projects backend (data model + migration + API) - COMPLETE
+
+**Objective:** Replace the single board with multiple named projects per user, with a project-scoped API and a migration from the legacy board.
+
+**Verified:** backend `26 passed` / 100% coverage. Covers project CRUD, reorder, last-project delete guard (400), ownership 404, per-project board read/write isolation, 422 on malformed board, project-scoped chat (persist + reply-only + 502 no-corruption, AI mocked), and the legacy `boards` -> `projects` migration (data preserved, table dropped).
+
+- [x] `db.py`: add a `projects` table (`id, user_id, name, position, data, updated_at`); add `DEFAULT_COLUMNS` (the 5 stage columns with empty `cardIds`) and `EMPTY_BOARD` (`{columns: DEFAULT_COLUMNS, cards: {}}`) for new projects
+- [x] `db.py` migration/seed on startup: if a legacy `boards` table exists, copy each row into `projects` (name "My Board", position 0, same `data`) then drop it; if the seeded user has no projects, create one named "My Board" with `DEFAULT_BOARD`
+- [x] `db.py` repository: `list_projects(user_id)`, `create_project(user_id, name)`, `rename_project(user_id, id, name)`, `delete_project(user_id, id)` (raises if it is the last project), `reorder_projects(user_id, ids)`, `get_project(user_id, id)` (ownership check), `get_project_board(id)`, `save_project_board(id, data)`
+- [x] `models.py`: `Project {id, name, position}`, `ProjectCreate {name}`, `ProjectRename {name}`, `ReorderRequest {ids: list[int]}`
+- [x] Move `require_user` from `board.py` to `auth.py`; create `app/projects.py` with all project routes; delete `app/board.py`; update `main.py` to include the projects router
+- [x] Routes (auth-gated, ownership -> 404): `GET /api/projects`, `POST /api/projects`, `PATCH /api/projects/{id}`, `DELETE /api/projects/{id}` (400 on last), `POST /api/projects/reorder`, `GET|PUT /api/projects/{id}/board`, `POST /api/projects/{id}/chat`
+- [x] Update `docs/DATABASE.md` for the `projects` table, migration, and route changes
+
+**Tests (pytest, temp DB per test):**
+- List/create/rename/delete projects; create returns an empty default board; delete blocked on the last project (400); unknown/non-owned id -> 404
+- Reorder persists new positions
+- `GET`/`PUT /api/projects/{id}/board` read/write the right project; `POST /api/projects/{id}/chat` scoped to that project (AI mocked); 502 on AI failure leaves the board unchanged
+- Migration: a legacy `boards` row becomes the first project "My Board" preserving its data; fresh install seeds the default project
+
+**Success criteria:** Project-scoped API works; existing board data is preserved by the migration; auth + ownership enforced; backend coverage >= 80%.
+
+## Part 13: Projects frontend (top-bar switcher + per-project board/chat) - COMPLETE
+
+**Objective:** A top-bar project switcher with create/rename/delete/reorder; the board and chat operate on the active project.
+
+- [x] `lib/projects.ts`: `Project` type (`{ id: number, name: string, position: number }`)
+- [x] `ProjectBar` (new): loads via `Workspace`; current project as a dropdown switcher; "+ New" (create -> switch to it); inline rename (`PATCH`); delete with a `window.confirm` step (`DELETE`, then switch to the first remaining); reorder via up/down controls (`POST /api/projects/reorder`); the Log out button lives here
+- [x] `Workspace`: owns the active project id (persisted in `localStorage`, falling back to the first project) and the project list; renders `ProjectBar` + `KanbanBoard` + `ChatSidebar`, passing the active project id; reloads on project change
+- [x] `KanbanBoard`: takes a `projectId` prop; loads/saves `/api/projects/{projectId}/board`; reloads when `projectId` (or the refresh signal) changes
+- [x] `ChatSidebar`: takes a `projectId` prop; `POST /api/projects/{projectId}/chat`; resets the conversation when `projectId` changes
+
+**Tests:**
+- Frontend unit (mocked fetch): `ProjectBar` switch / create / rename / delete / reorder; `Workspace` create/delete/rename/reorder orchestration + board auto-refresh; `KanbanBoard` loads the active project's board; `ChatSidebar` posts to the project-scoped route and clears messages when `projectId` changes
+- e2e: create a project, switch to it, add a card, switch back (cards isolated per project); rename a project; delete a project
+
+**Note (reorder):** implemented as up/down move controls in the switcher dropdown rather than drag-and-drop - simpler and reliably testable in a dropdown, and it satisfies "move projects to change their order." Can be swapped to dnd-kit drag later if desired.
+
+**Success criteria:** Multiple projects with working switch/create/rename/delete/reorder; board and chat scoped to the active project; everything persists; frontend coverage >= 80%.
+
+**Verified:** frontend unit `42 passed`, coverage 94.8% stmts / 89% branches (`ProjectBar` + `Workspace` covered); Playwright `12 passed` / 1 skipped (key-gated live chat), including project isolation, rename, delete, and the cross-column drag. Also fixed the e2e viewport (the `Desktop Chrome` device preset was forcing 1280x720, leaving tall cards off-screen for the drag test) by overriding to 1440x1200.

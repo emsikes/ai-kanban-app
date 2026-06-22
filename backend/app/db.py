@@ -17,15 +17,29 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS boards (
+CREATE TABLE IF NOT EXISTS projects (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    INTEGER NOT NULL UNIQUE REFERENCES users(id),
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    name       TEXT NOT NULL,
+    position   INTEGER NOT NULL,
     data       TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
 
-# Demo board, identical to the frontend initialData shape.
+# The five stage columns shared by every board.
+DEFAULT_COLUMNS = [
+    {"id": "col-backlog", "title": "Backlog", "cardIds": []},
+    {"id": "col-discovery", "title": "Discovery", "cardIds": []},
+    {"id": "col-progress", "title": "In Progress", "cardIds": []},
+    {"id": "col-review", "title": "Review", "cardIds": []},
+    {"id": "col-done", "title": "Done", "cardIds": []},
+]
+
+# New projects start with the columns and no cards.
+EMPTY_BOARD = {"columns": DEFAULT_COLUMNS, "cards": {}}
+
+# The seeded first project's demo board, identical to the frontend initialData.
 DEFAULT_BOARD = {
     "columns": [
         {"id": "col-backlog", "title": "Backlog", "cardIds": ["card-1", "card-2"]},
@@ -67,10 +81,20 @@ def hash_password(password: str) -> str:
     ).hex()
 
 
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
+
+
 def init_db() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+
         user = conn.execute(
             "SELECT id FROM users WHERE username = ?", (DEFAULT_USERNAME,)
         ).fetchone()
@@ -82,14 +106,32 @@ def init_db() -> None:
             user = conn.execute(
                 "SELECT id FROM users WHERE username = ?", (DEFAULT_USERNAME,)
             ).fetchone()
-        has_board = conn.execute(
-            "SELECT id FROM boards WHERE user_id = ?", (user["id"],)
-        ).fetchone()
-        if has_board is None:
+        user_id = user["id"]
+
+        # Migrate the legacy single-board table into projects, once.
+        if _table_exists(conn, "boards"):
+            for row in conn.execute("SELECT user_id, data FROM boards").fetchall():
+                has_projects = conn.execute(
+                    "SELECT COUNT(*) AS c FROM projects WHERE user_id = ?",
+                    (row["user_id"],),
+                ).fetchone()["c"]
+                if has_projects == 0:
+                    conn.execute(
+                        "INSERT INTO projects (user_id, name, position, data) VALUES (?, 'My Board', 0, ?)",
+                        (row["user_id"], row["data"]),
+                    )
+            conn.execute("DROP TABLE boards")
+
+        # Seed a default project for the seeded user if they have none.
+        has_projects = conn.execute(
+            "SELECT COUNT(*) AS c FROM projects WHERE user_id = ?", (user_id,)
+        ).fetchone()["c"]
+        if has_projects == 0:
             conn.execute(
-                "INSERT INTO boards (user_id, data) VALUES (?, ?)",
-                (user["id"], json.dumps(DEFAULT_BOARD)),
+                "INSERT INTO projects (user_id, name, position, data) VALUES (?, 'My Board', 0, ?)",
+                (user_id, json.dumps(DEFAULT_BOARD)),
             )
+
         conn.commit()
     finally:
         conn.close()
@@ -105,23 +147,113 @@ def default_user_id() -> int:
         conn.close()
 
 
-def get_board(user_id: int) -> dict:
+def _project_row(row: sqlite3.Row) -> dict:
+    return {"id": row["id"], "name": row["name"], "position": row["position"]}
+
+
+def list_projects(user_id: int) -> list[dict]:
+    conn = connect()
+    try:
+        rows = conn.execute(
+            "SELECT id, name, position FROM projects WHERE user_id = ? ORDER BY position",
+            (user_id,),
+        ).fetchall()
+        return [_project_row(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def get_project(user_id: int, project_id: int) -> dict | None:
     conn = connect()
     try:
         row = conn.execute(
-            "SELECT data FROM boards WHERE user_id = ?", (user_id,)
+            "SELECT id, name, position FROM projects WHERE id = ? AND user_id = ?",
+            (project_id, user_id),
+        ).fetchone()
+        return _project_row(row) if row else None
+    finally:
+        conn.close()
+
+
+def create_project(user_id: int, name: str) -> dict:
+    conn = connect()
+    try:
+        position = conn.execute(
+            "SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM projects WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()["pos"]
+        cursor = conn.execute(
+            "INSERT INTO projects (user_id, name, position, data) VALUES (?, ?, ?, ?)",
+            (user_id, name, position, json.dumps(EMPTY_BOARD)),
+        )
+        conn.commit()
+        return {"id": cursor.lastrowid, "name": name, "position": position}
+    finally:
+        conn.close()
+
+
+def rename_project(user_id: int, project_id: int, name: str) -> dict:
+    conn = connect()
+    try:
+        conn.execute(
+            "UPDATE projects SET name = ? WHERE id = ? AND user_id = ?",
+            (name, project_id, user_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT id, name, position FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
+        return _project_row(row)
+    finally:
+        conn.close()
+
+
+def delete_project(user_id: int, project_id: int) -> None:
+    conn = connect()
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM projects WHERE user_id = ?", (user_id,)
+        ).fetchone()["c"]
+        if count <= 1:
+            raise ValueError("Cannot delete the last project")
+        conn.execute(
+            "DELETE FROM projects WHERE id = ? AND user_id = ?", (project_id, user_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def reorder_projects(user_id: int, ids: list[int]) -> None:
+    conn = connect()
+    try:
+        for position, project_id in enumerate(ids):
+            conn.execute(
+                "UPDATE projects SET position = ? WHERE id = ? AND user_id = ?",
+                (position, project_id, user_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_project_board(project_id: int) -> dict:
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT data FROM projects WHERE id = ?", (project_id,)
         ).fetchone()
         return json.loads(row["data"])
     finally:
         conn.close()
 
 
-def save_board(user_id: int, data: dict) -> None:
+def save_project_board(project_id: int, data: dict) -> None:
     conn = connect()
     try:
         conn.execute(
-            "UPDATE boards SET data = ?, updated_at = datetime('now') WHERE user_id = ?",
-            (json.dumps(data), user_id),
+            "UPDATE projects SET data = ?, updated_at = datetime('now') WHERE id = ?",
+            (json.dumps(data), project_id),
         )
         conn.commit()
     finally:

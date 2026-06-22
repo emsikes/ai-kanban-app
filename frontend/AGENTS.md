@@ -1,6 +1,6 @@
 # Frontend
 
-A single-board Kanban app built with Next.js (App Router), statically exported and served by the FastAPI backend at `/`. Access is gated by a fake login (`AuthGate` checks `/api/session`). The board loads from `GET /api/board` and persists every change via a debounced `PUT /api/board`. An AI chat sidebar (`ChatSidebar`) posts to `/api/chat`; when the AI returns a board update, `Workspace` bumps a refresh signal so `KanbanBoard` refetches and the UI updates without a reload.
+A multi-project Kanban app built with Next.js (App Router), statically exported and served by the FastAPI backend at `/`. Access is gated by a fake login (`AuthGate` checks `/api/session`). A top `ProjectBar` switches between projects (create/rename/delete/reorder). For the active project, the board loads from `GET /api/projects/{id}/board` and persists every change via a debounced `PUT`; card titles and details are editable inline. An AI chat sidebar (`ChatSidebar`, per project) posts to `/api/projects/{id}/chat`; when the AI returns a board update, `Workspace` bumps a refresh signal so `KanbanBoard` refetches and the UI updates without a reload.
 
 The build is produced by `scripts/build-frontend.sh` (runs `npm run build`, copies `out/` into `backend/static/`). In Docker the equivalent happens in the Dockerfile's Node build stage. `backend/static/` is generated output, not source.
 
@@ -24,17 +24,19 @@ frontend/
     components/
       AuthGate.tsx          Client component; checks /api/session, shows login vs Workspace
       LoginForm.tsx         Username/password form (calls back to AuthGate)
-      Workspace.tsx         Authed layout: board + chat sidebar + logout; owns the board refresh signal
-      ChatSidebar.tsx       AI chat panel; POSTs /api/chat with history; triggers board refresh on board updates
-      KanbanBoard.tsx       Client component; loads board from API (reloads on refreshSignal), owns state + DnD, persists (debounced PUT)
+      Workspace.tsx         Authed layout: ProjectBar + board + chat; owns active project (localStorage) + project CRUD + board refresh signal
+      ProjectBar.tsx        Top bar: project switcher dropdown, create/rename/delete/reorder, logout
+      ChatSidebar.tsx       AI chat panel (per project); POSTs /api/projects/{id}/chat; resets on project switch; triggers board refresh on board updates
+      KanbanBoard.tsx       Client component; loads /api/projects/{id}/board (reloads on projectId/refreshSignal), owns state + DnD + inline card edit, persists (debounced PUT)
       KanbanColumn.tsx      A droppable column with editable title and a SortableContext
-      KanbanCard.tsx        A sortable/draggable card with a Remove button
+      KanbanCard.tsx        A sortable/draggable card; title and details are click-to-edit (inline), with a Remove button
       KanbanCardPreview.tsx Static card used inside the DragOverlay
       NewCardForm.tsx       Collapsible "add a card" form (title + details)
       KanbanBoard.test.tsx  Component/integration tests for the board
     lib/
       kanban.ts         Data model + pure helpers (initialData, moveCard, createId)
       kanban.test.ts    Unit tests for moveCard
+      projects.ts       Project type ({ id, name, position })
     test/
       setup.ts          Imports @testing-library/jest-dom
       vitest.d.ts       Vitest type augmentation

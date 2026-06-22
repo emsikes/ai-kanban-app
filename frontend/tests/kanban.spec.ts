@@ -31,6 +31,23 @@ test("removes a card from a column", async ({ page }) => {
   await expect(page.getByTestId("card-card-1")).toHaveCount(0);
 });
 
+test("edits a card's title inline and it persists", async ({ page }) => {
+  const card = page.getByTestId("card-card-1");
+  await card.getByText("Align roadmap themes").click();
+  const input = card.getByLabel("Card title");
+  await input.fill("Edited via e2e");
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes("/board") &&
+      response.request().method() === "PUT"
+  );
+  await input.press("Enter");
+  await saved;
+
+  await page.reload();
+  await expect(page.getByText("Edited via e2e")).toBeVisible();
+});
+
 test("persists edits across a reload", async ({ page }) => {
   const column = page.locator('[data-testid^="column-"]').first();
   await column.getByLabel("Column title").fill("Renamed Column");
@@ -40,7 +57,7 @@ test("persists edits across a reload", async ({ page }) => {
 
   const saved = page.waitForResponse(
     (response) =>
-      response.url().includes("/api/board") &&
+      response.url().includes("/board") &&
       response.request().method() === "PUT"
   );
   await column.getByRole("button", { name: /add card/i }).click();
@@ -63,16 +80,17 @@ test("moves a card between columns", async ({ page }) => {
     throw new Error("Unable to resolve drag coordinates.");
   }
 
-  await page.mouse.move(
-    cardBox.x + cardBox.width / 2,
-    cardBox.y + cardBox.height / 2
-  );
+  const startX = cardBox.x + cardBox.width / 2;
+  const startY = cardBox.y + cardBox.height / 2;
+  const endX = columnBox.x + columnBox.width / 2;
+  const endY = columnBox.y + 120;
+
+  await page.mouse.move(startX, startY);
   await page.mouse.down();
-  await page.mouse.move(
-    columnBox.x + columnBox.width / 2,
-    columnBox.y + 120,
-    { steps: 12 }
-  );
+  // Nudge past the dnd-kit 6px activation threshold, then drag and settle.
+  await page.mouse.move(startX + 12, startY + 12, { steps: 5 });
+  await page.mouse.move(endX, endY, { steps: 20 });
+  await page.mouse.move(endX, endY + 1, { steps: 3 });
   await page.mouse.up();
   await expect(targetColumn.getByTestId("card-card-1")).toBeVisible();
 });

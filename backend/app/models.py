@@ -43,3 +43,21 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     board: BoardData | None = None
+
+
+class Project(BaseModel):
+    id: int
+    name: str
+    position: int
+
+
+class ProjectCreate(BaseModel):
+    name: str
+
+
+class ProjectRename(BaseModel):
+    name: str
+
+
+class ReorderRequest(BaseModel):
+    ids: list[int]

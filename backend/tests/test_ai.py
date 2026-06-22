@@ -3,7 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app import ai
+from app import ai, db
+from app.models import ChatResult
 
 
 def test_get_client_missing_key_raises(monkeypatch):
@@ -43,3 +44,34 @@ def test_ask_returns_model_text(monkeypatch):
 def test_ask_live_two_plus_two():
     answer = ai.ask("What is 2+2? Reply with just the number.")
     assert "4" in answer
+
+
+def test_chat_calls_model_with_structured_format(monkeypatch):
+    captured = {}
+
+    class FakeResponses:
+        def parse(self, model, instructions, input, text_format):
+            captured["model"] = model
+            captured["text_format"] = text_format
+            return SimpleNamespace(output_parsed=ChatResult(reply="ok", board=None))
+
+    monkeypatch.setattr(
+        ai, "get_client", lambda: SimpleNamespace(responses=FakeResponses())
+    )
+    result = ai.chat(db.DEFAULT_BOARD, "hello", [{"role": "user", "content": "x"}])
+    assert result.reply == "ok"
+    assert captured["model"] == ai.MODEL
+    assert captured["text_format"] is ChatResult
+
+
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"), reason="no OPENAI_API_KEY set"
+)
+def test_chat_live_adds_card():
+    result = ai.chat(
+        db.DEFAULT_BOARD,
+        "Add a card titled 'Buy milk' to the Backlog column. Keep everything else unchanged.",
+        [],
+    )
+    assert result.board is not None
+    assert any("milk" in card.title.lower() for card in result.board.cards)
